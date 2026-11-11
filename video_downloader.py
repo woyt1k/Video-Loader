@@ -93,7 +93,11 @@ def source_for_url(url):
 def require_programs(*names):
     missing = [name for name in names if shutil.which(name) is None]
     if missing:
-        raise ValueError(f"Не хватает: {', '.join(missing)}. Открой «Запустить.command» для установки.")
+        raise ValueError(f"Не хватает: {', '.join(missing)}. Открой «{launcher_name()}» для установки.")
+
+
+def launcher_name():
+    return "Запустить.cmd" if sys.platform == "win32" else "Запустить.command"
 
 
 def read_video(command, url):
@@ -214,7 +218,7 @@ def run_download(command):
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace",
     ) as process:
-        showing_progress = False
+        progress_width = 0
         try:
             for raw_line in process.stdout:
                 line = raw_line.rstrip("\r\n")
@@ -226,15 +230,16 @@ def run_download(command):
                         except json.JSONDecodeError:
                             continue
                         label = "Аудио" if codec == "none" else "Видео"
-                        print(f"\r\033[K{progress_line(progress, label)}", end="", flush=True)
-                        showing_progress = True
+                        progress_text = progress_line(progress, label)
+                        progress_width = max(progress_width, len(progress_text))
+                        print(f"\r{progress_text:<{progress_width}}", end="", flush=True)
                 elif line:
-                    if showing_progress:
+                    if progress_width:
                         print(flush=True)
-                        showing_progress = False
+                        progress_width = 0
                     print(line, flush=True)
         finally:
-            if showing_progress:
+            if progress_width:
                 print(flush=True)
         return process.wait()
 
@@ -273,7 +278,7 @@ def download_pinterest(url, directory):
 def main():
     parser = argparse.ArgumentParser(
         description="Скачать видео из YouTube, ВК, ОК и TikTok или фото из Pinterest.",
-        epilog="На macOS открой «Запустить.command», чтобы установить недостающие программы.",
+        epilog=f"Открой «{launcher_name()}», чтобы установить недостающие программы.",
     )
     parser.add_argument("url", nargs="?", help="ссылка, которую также можно ввести после запуска")
     parser.add_argument(
@@ -293,7 +298,9 @@ def main():
 
         require_programs("yt-dlp", "ffmpeg")
         directory = args.output_dir or DOWNLOADS_DIRECTORY / "Video"
-        command = ["yt-dlp", "--ignore-config", "--no-playlist", "--playlist-items", "1"]
+        command = [
+            "yt-dlp", "--ignore-config", "--encoding", "utf-8", "--no-playlist", "--playlist-items", "1",
+        ]
         print("Получаю список форматов…", flush=True)
         info = read_video(command, url)
         formats = available_formats(info)
